@@ -729,6 +729,12 @@ WorkspacePlan build_workspace_plan(const SequencePlanImpl& plan) {
 
 void validate_target_options(const execution::Parameters& parameters, DeviceContext& device,
                              const EngineOptions& options) {
+#ifdef NINFER_THOR
+    if (options.kv_cache == KvCacheStorage::Nvfp4Group16 ||
+        options.kv_cache == KvCacheStorage::Fp8KeyNvfp4Value) {
+        throw std::invalid_argument("Thor currently supports bf16, int8 and fp8 KV caches; NVFP4 weights use native FP4 GEMM");
+    }
+#endif
     if (!parameters.model.config().text.attention ||
         parameters.model.config().text.full_attention_layers == 0) {
         throw std::invalid_argument("Qwen3.5 Program requires at least one full-attention layer");
@@ -801,8 +807,8 @@ void validate_target_options(const execution::Parameters& parameters, DeviceCont
         }
         break;
     }
-    if (device.compute_capability() != 120) {
-        throw std::invalid_argument("Qwen3.5 family runtime requires compute capability 12.0");
+    if (device.compute_capability() != 120 && device.compute_capability() != 110) {
+        throw std::invalid_argument("Qwen3.5 family runtime requires compute capability 12.0 or 11.0");
     }
 }
 

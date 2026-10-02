@@ -153,6 +153,7 @@ public:
     [[nodiscard]] bool has_exact_token_domain(std::size_t size) const noexcept;
 
 private:
+    bool include_marks_ = true;
     std::vector<std::string> decoded_token_bytes_;
     std::vector<bool> valid_token_ids_;
     std::vector<bool> special_token_ids_;

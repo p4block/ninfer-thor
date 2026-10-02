@@ -10,6 +10,9 @@
 #include "ops/common/math.h"
 #include "ops/linear/common/epilogue.cuh"
 #include "ops/linear/common/vector_output.cuh"
+#ifdef NINFER_THOR
+#include "ops/linear/nvfp4/nvfp4_thor.cuh"
+#endif
 
 #include <cuda.h>
 #include <cuda_bf16.h>
@@ -372,6 +375,9 @@ template <class Schedule, class Output, class Epilogue, class Rows = Nvfp4Identi
 void launch_nvfp4_a4_tma_mma(const Nvfp4A4Operands& p, Output output, Epilogue epilogue,
                              cudaStream_t stream, Rows = {}) {
     validate_nvfp4_operands<Schedule>(p);
+#ifdef NINFER_THOR
+    launch_nvfp4_thor(p, output, epilogue, stream);
+#else
     static_assert(
         Rows::kContiguous ||
             [] {
@@ -400,5 +406,6 @@ void launch_nvfp4_a4_tma_mma(const Nvfp4A4Operands& p, Output output, Epilogue e
                                                             offset + count, p.rows, p.k, offset);
         CUDA_CHECK(cudaGetLastError());
     });
+#endif
 }
 } // namespace ninfer::ops::detail

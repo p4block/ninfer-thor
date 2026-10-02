@@ -1,0 +1,12 @@
+Internal ctest changing into directory: /work/build
+Test project /work/build
+    Start 113: ninfer_linear_nvfp4_a4_test
+1/3 Test #113: ninfer_linear_nvfp4_a4_test .......   Passed    7.95 sec
+    Start 121: ninfer_linear_add_nvfp4_test
+2/3 Test #121: ninfer_linear_add_nvfp4_test ......   Passed    1.07 sec
+    Start 126: ninfer_linear_swiglu_nvfp4_test
+3/3 Test #126: ninfer_linear_swiglu_nvfp4_test ...   Passed    6.51 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Total Test time (real) =  15.54 sec

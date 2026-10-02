@@ -31,7 +31,9 @@ Nvfp4LinearSwiGluRoute resolve_route(LinearPolicy policy, std::int32_t tokens) {
         throw std::invalid_argument("nvfp4 linear_swiglu A16 is registered only through T=16");
     }
     if (tokens == 1) { return Nvfp4LinearSwiGluRoute::DecodeFusedA16; }
+#ifndef NINFER_THOR
     if (tokens <= 4) { return Nvfp4LinearSwiGluRoute::SmallTFusedA16; }
+#endif
     // This route dispatches its own fused kernel rather than a Linear shape's, so it carries its
     // own condition; the call site below forces the matching scale layout.
     if (tokens >= 256) { return Nvfp4LinearSwiGluRoute::TmaFusedA4; }
@@ -58,8 +60,9 @@ std::size_t nvfp4_linear_swiglu_workspace_capacity_bytes(LinearPolicy policy,
         throw std::invalid_argument("nvfp4 linear_swiglu workspace: invalid token interval");
     }
     (void)resolve_route(policy, min_tokens);
-    (void)resolve_route(policy, max_tokens);
-    if ((policy == LinearPolicy::A16Only || policy == LinearPolicy::AllowA8) || max_tokens <= 4) {
+    const auto route = resolve_route(policy, max_tokens);
+    if (route == Nvfp4LinearSwiGluRoute::DecodeFusedA16 ||
+        route == Nvfp4LinearSwiGluRoute::SmallTFusedA16) {
         return 0;
     }
 

@@ -507,6 +507,38 @@ int test_tokenizer_config_merge() {
     return failures;
 }
 
+int test_legacy_tokenizer_pipeline() {
+    auto source = resources();
+    auto root = nlohmann::json::parse(source.tokenizer_json);
+    const std::string mark_byte = byte_level_symbol(0xcc);
+    root["model"]["vocab"]["q" + mark_byte] = 3000;
+    root["model"]["merges"] = nlohmann::json::array({nlohmann::json::array({"q", mark_byte})});
+    root["pre_tokenizer"] = nlohmann::json::parse(
+        R"json({"type":"Sequence","pretokenizers":[{"type":"Split","pattern":{"Regex":"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\\r\\n\\p{L}\\p{N}]?[\\p{L}\\p{M}]+|\\p{N}| ?[^\\s\\p{L}\\p{M}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"},"behavior":"Isolated","invert":false},{"type":"ByteLevel","add_prefix_space":false,"use_regex":false}]})json");
+    source.tokenizer_json = root.dump();
+    auto config = nlohmann::json::parse(source.tokenizer_config_json);
+    config.erase("add_bos_token");
+    config.erase("added_tokens_decoder");
+    config["bos_token"] = nullptr;
+    source.tokenizer_config_json = config.dump();
+    (void)make_frontend(source);
+    const fi::Tokenizer modern({source.tokenizer_json, "{}", source.generation_config_json});
+    int failures = check(modern.encode("q\xcc\x81") ==
+                             std::vector<int>{3000, fixture_byte_token(0x81)},
+                         "modern tokenizer must merge letters with combining marks");
+    root["pre_tokenizer"]["pretokenizers"][0]["pattern"]["Regex"] =
+        R"qwen((?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+)qwen";
+    source.tokenizer_json = root.dump();
+    const fi::Tokenizer legacy({source.tokenizer_json, "{}", source.generation_config_json});
+    failures += check(legacy.encode("q\xcc\x81") ==
+                          std::vector<int>{fixture_byte_token('q'), fixture_byte_token(0xcc),
+                                           fixture_byte_token(0x81)},
+                      "legacy tokenizer must retain the combining-mark split boundary");
+    failures += check(legacy.encode("<|im_end|>") == std::vector<int>{248046},
+                      "tokenizer.json added tokens must work without a config decoder");
+    return failures;
+}
+
 int test_bpe_merge_order() {
     const std::string tokenizer_json = nlohmann::json{
         {"model",
@@ -2164,6 +2196,7 @@ int main() {
     failures += test_declared_frontend_semantics();
     failures += test_tokenizer_config_merge();
     failures += test_bpe_merge_order();
+    failures += test_legacy_tokenizer_pipeline();
     failures += test_boundary_aware_tokenization();
     failures += test_rendered_special_tokens();
     failures += test_repeated_special_tokens_scan_linearly();

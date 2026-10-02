@@ -3,7 +3,7 @@
 > Selected checkpoints. Maximum single-GPU inference performance.
 
 NInfer is a from-scratch C++/CUDA inference engine for Qwen3.5 Dense and MoE architectures on a
-single NVIDIA GeForce RTX 5090. It runs text, image, and video prompts through a local CLI or
+single NVIDIA GeForce RTX 5090, with a native NVFP4 port for Jetson AGX Thor. It runs text, image, and video prompts through a local CLI or
 OpenAI-/Anthropic-compatible HTTP APIs. The runtime is deliberately specialized: one GPU, one
 resident model, and a startup-fixed capacity of one to eight active requests.
 
@@ -32,7 +32,7 @@ NInfer requires 64-bit Linux, an NVIDIA GeForce RTX 5090, a CUDA toolkit support
 CMake 3.28 or newer, a C++20 host compiler, Ninja, `pkg-config`, FFmpeg development libraries
 (`libavformat`, `libavcodec`, `libavutil`, and `libswscale`), and `libcurl >= 7.85`.
 CUDA 13.1 is the validated development toolkit; CMake does not impose a CUDA version floor.
-The build rejects CUDA architectures other than `sm_120a`.
+The build accepts `sm_120a` for RTX 5090 and `sm_110a` for Jetson AGX Thor.
 
 Build the product binaries:
 
@@ -43,6 +43,39 @@ cd ninfer
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
+
+### Jetson AGX Thor
+
+Build this checkout with a Thor-compatible CUDA toolchain and cuBLASLt:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_ARCHITECTURES=110a
+cmake --build build -j
+```
+
+Thor contracts packed NVFP4 weights and activations with native FP4 tensor cores through
+cuBLASLt. FP32 accumulators feed the existing residual, split-projection, and SwiGLU operations
+before the final BF16 cast. Transient scales, accumulators, and library workspace belong to
+the existing caller-owned arena. Single-token A16 routes retain the existing packed-weight
+decoders. On Thor, AllowA4 MLP projections switch to native FP4 at two tokens;
+A16Only policies retain their existing routes. FP8 projections use SM110's regular FP8 MMA instruction.
+
+Use `--kv-dtype fp8`, `int8`, or `bf16`. NVFP4 and mixed FP8/FP4 KV cache kernels are not ported
+and startup rejects those choices. NVFP4 model weights are supported independently of KV format.
+The 5090 throughput tables below do not describe Thor performance.
+
+For Qwen3.8-27B, start with a bounded context and then increase it after checking memory:
+
+```bash
+./build/apps/ninfer-serve models/qwen3_8_27b_nvfp4.ninfer \
+  --host 127.0.0.1 --port 8000 --max-context 32768 --kv-capacity 32768 \
+  --max-concurrency 1 --kv-dtype fp8 --spec mtp --draft-tokens 4 \
+  --lm-head-draft
+```
+
+See [Thor deployment and measured results](docs/thor/README.md) for the tested
+Qwen3.8 conversion, persistent service, verification, and tuning evidence.
 
 Tests and benchmarks are excluded from the default build. `cmake --preset release` configures
 the same product build; `cmake --preset dev` also enables tests and benchmarks and finds a
@@ -242,7 +275,7 @@ and either full or optimized proposal heads.
 
 The product boundary remains intentionally small:
 
-- one RTX 5090 and one resident model per Engine;
+- one RTX 5090 or Jetson AGX Thor and one resident model per Engine;
 - a startup-fixed capacity of one to eight active requests with bounded FIFO ingress;
 - no request preemption, priority/QoS, active-request swapping, weight offload, multi-GPU, or
   distributed serving;

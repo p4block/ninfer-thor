@@ -8,6 +8,9 @@
 #include "ops/linear/nvfp4/nvfp4_a16_mma.cuh"
 #include "ops/linear/nvfp4/nvfp4_a16_sliced_k_mma.cuh"
 #include "ops/linear/nvfp4/nvfp4_a4_mma.cuh"
+#ifdef NINFER_THOR
+#include "ops/linear/nvfp4/nvfp4_thor.cuh"
+#endif
 
 namespace ninfer::ops::detail {
 template <class Schedule, class Output, class Epilogue, class Rows = Nvfp4IdentityRows>
@@ -94,6 +97,9 @@ template <class Schedule, class Output, class Epilogue, class Rows = Nvfp4Identi
 void launch_nvfp4_a4_mma(const Nvfp4A4Operands& p, Output output, Epilogue epilogue,
                          cudaStream_t stream, Rows rows = {}) {
     validate_nvfp4_operands<Schedule>(p);
+#ifdef NINFER_THOR
+    launch_nvfp4_thor(p, output, epilogue, stream);
+#else
     if (p.rows % Schedule::kBlockRows || p.k % Schedule::kBlockK ||
         p.k / Schedule::kBlockK < Schedule::kStages)
         throw std::invalid_argument(
@@ -116,5 +122,6 @@ void launch_nvfp4_a4_mma(const Nvfp4A4Operands& p, Output output, Epilogue epilo
         else
             launch.template operator()<false>();
     });
+#endif
 }
 } // namespace ninfer::ops::detail

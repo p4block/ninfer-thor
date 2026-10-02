@@ -1,7 +1,9 @@
 # Build system
 
 NInfer builds from its source tree with CMake 3.28+ and C++/CUDA 20.
-The supported architecture is `sm_120a`; CUDA 13.1 is the validated development toolkit.
+The supported architectures are `sm_120a` (RTX 5090) and `sm_110a` (Jetson AGX Thor).
+CUDA 13.1 is the validated 5090 development toolkit; the Thor port builds with CUDA 13.0.
+Set `CMAKE_CUDA_ARCHITECTURES=110a` to select native cuBLASLt NVFP4 contractions on Thor.
 Product commands and prerequisites are in the
 [README](../../README.md#quick-start); test and measurement workflows live in
 [tests](../../tests/README.md) and [benchmarks](../../bench/README.md).

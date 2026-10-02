@@ -182,7 +182,9 @@ fi::ProcessorOptions processor_options(const FrontendResources& resources) {
 void validate_tokenizer_config(const FrontendResources& resources) {
     const Json tokenizer_config =
         parse_resource_json(resources.tokenizer_config_json, "tokenizer_config.json");
-    if (tokenizer_config.value("add_bos_token", true) ||
+    const bool has_no_bos = tokenizer_config.contains("bos_token") &&
+                            tokenizer_config.at("bos_token").is_null();
+    if (tokenizer_config.value("add_bos_token", !has_no_bos) ||
         tokenizer_config.value("add_prefix_space", true)) {
         throw std::invalid_argument(
             "tokenizer_config.json does not match Qwen3.5 tokenizer prefix semantics");

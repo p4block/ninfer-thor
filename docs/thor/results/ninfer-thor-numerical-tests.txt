@@ -1,0 +1,17 @@
+Internal ctest changing into directory: /work/build
+Test project /work/build
+    Start 100: ninfer_attn_input_proj_test
+1/5 Test #100: ninfer_attn_input_proj_test .......   Passed   39.00 sec
+    Start 101: ninfer_gdn_input_proj_test
+2/5 Test #101: ninfer_gdn_input_proj_test ........   Passed    3.93 sec
+    Start 113: ninfer_linear_nvfp4_a4_test
+3/5 Test #113: ninfer_linear_nvfp4_a4_test .......   Passed    8.51 sec
+    Start 121: ninfer_linear_add_nvfp4_test
+4/5 Test #121: ninfer_linear_add_nvfp4_test ......   Passed    1.08 sec
+    Start 126: ninfer_linear_swiglu_nvfp4_test
+5/5 Test #126: ninfer_linear_swiglu_nvfp4_test ...   Passed    6.71 sec
+
+100% tests passed, 0 tests failed out of 5
+
+Total Test time (real) =  59.24 sec
+PASS causal_softmax_attention fp8-e4m3fn-row256 public-contract correctness

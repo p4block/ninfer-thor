@@ -40,8 +40,10 @@ approval requirements beyond the user's instructions and the actual execution en
 
 NInfer is a from-scratch C++/CUDA inference engine for maximum single-GPU performance. It implements
 `Qwen3_5ForCausalLM` and `Qwen3_5MoeForCausalLM`; official Qwen3.6/3.8 artifacts and user recipes
-use the same architecture, binding and execution path. The implementation targets `sm_120a` and
-is tuned on NVIDIA GeForce RTX 5090.
+use the same architecture, binding and execution path. The implementation targets `sm_120a` on
+NVIDIA GeForce RTX 5090 and `sm_110a` on Jetson AGX Thor. Thor uses native cuBLASLt NVFP4
+contractions with caller-owned workspace. Its supported KV storage is BF16, INT8, or FP8;
+FP4 KV is not ported.
 
 Generation uses one GPU, one resident model, startup-fixed concurrency of one to eight requests,
 bounded FIFO ingress, no active-request preemption, and one compact decode batch per round.
