@@ -63,7 +63,11 @@ struct Plan {
         int count = 0;
         const auto status = cublasLtMatmulAlgoGetHeuristic(handle, desc, a, b, d, d, preference, 1, &result, &count);
         cublasLtMatmulPreferenceDestroy(preference);
-        check(status, "select native Thor NVFP4 algorithm");
+        if (status != CUBLAS_STATUS_SUCCESS)
+            throw std::runtime_error("select native Thor NVFP4 algorithm for N=" +
+                                     std::to_string(rows) + " T=" + std::to_string(tokens) +
+                                     " K=" + std::to_string(k) + ": cuBLASLt status " +
+                                     std::to_string(status));
         if (count == 0) throw std::runtime_error("no native Thor NVFP4 algorithm for selected shape");
         algorithm = result.algo;
     }

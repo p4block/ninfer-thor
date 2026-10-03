@@ -1,0 +1,22 @@
+snapshot Q4/Q5 A16 T=1 initial=2 base=1: sampled FP64 reference, compared 96 output values + 288 state values, workspace capacity 0 peak 0, failures 0
+snapshot Q4/Q5 A16 T=2 initial=3 base=1: sampled FP64 reference, compared 192 output values + 576 state values, workspace capacity 0 peak 0, failures 0
+snapshot Q4/Q5 A16 T=3 initial=4 base=1: sampled FP64 reference, compared 288 output values + 864 state values, workspace capacity 0 peak 0, failures 0
+snapshot Q4/Q5 A16 T=4 initial=5 base=1: sampled FP64 reference, compared 384 output values + 1152 state values, workspace capacity 81920 peak 81920, failures 0
+snapshot Q4/Q5 A16 T=5 initial=0 base=1: sampled FP64 reference, compared 105 output values + 315 state values, workspace capacity 0 peak 0, failures 0
+snapshot Q4/Q5 A16 T=6 initial=7 base=1: sampled FP64 reference, compared 126 output values + 378 state values, workspace capacity 0 peak 0, failures 0
+snapshot Q4/Q5 A16 T=7 initial=8 base=1: complete FP64 reference, compared 71680 output values + 215040 state values, workspace capacity 143360 peak 143360, failures 0
+snapshot Q4/Q5 A16 T=8 initial=9 base=1: complete FP64 reference, compared 81920 output values + 245760 state values, workspace capacity 163840 peak 163840, failures 0
+snapshot Q4/Q5 A16 T=9 initial=10 base=1: complete FP64 reference, compared 92160 output values + 276480 state values, workspace capacity 184320 peak 184320, failures 0
+snapshot Q4/Q5 A16 T=10 initial=11 base=1: complete FP64 reference, compared 102400 output values + 307200 state values, workspace capacity 204800 peak 204800, failures 0
+snapshot Q4/Q5 A16 T=32 initial=33 base=1: sampled FP64 reference, compared 672 output values + 2016 state values, workspace capacity 655360 peak 655360, failures 0
+snapshot Q4/Q5 A16 T=33 initial=34 base=1: sampled FP64 reference, compared 693 output values + 2079 state values, workspace capacity 675840 peak 675840, failures 0
+snapshot Q4/Q5 A16 T=64 initial=65 base=1: sampled FP64 reference, compared 1344 output values + 4032 state values, workspace capacity 1310720 peak 1310720, failures 0
+Q4/Q5 A16 B=8 W=1: sampled FP64 reference over 1 columns x 8 batch rows (8 aggregate columns), compared 768 output values + 2304 state values, failures 0
+Q4/Q5 A16 B=2 W=5: sampled FP64 reference over 5 columns x 2 batch rows (10 aggregate columns), compared 210 output values + 630 state values, failures 0
+Q4/Q5 A16 B=2 W=4 masked: sampled FP64 reference over 4 columns x 2 batch rows (8 aggregate columns), compared 576 output values + 1728 state values, failures 0
+Q4/Q5 A16 B=3 W=16 masked: sampled FP64 reference over 16 columns x 3 batch rows (48 aggregate columns), compared 909 output values + 2727 state values, failures 0
+Q8 A16 B=2 W=16 masked: sampled FP64 reference over 16 columns x 2 batch rows (32 aggregate columns), compared 483 output values + 1449 state values, failures 0
+NVFP4 A4 B=3 W=6 masked: sampled FP64 reference over 6 columns x 3 batch rows (18 aggregate columns), compared 510 output values + 1530 state values, failures 0
+FP8 AllowA8 B=2 W=4: sampled FP64 reference over 4 columns x 2 batch rows (8 aggregate columns), compared 576 output values + 1728 state values, failures 0
+FP8 AllowA8 B=8 W=16: sampled FP64 reference over 16 columns x 8 batch rows (128 aggregate columns), compared 1668 output values + 5004 state values, failures 0
+OK gdn_input_proj_conv_snapshot

@@ -8,7 +8,7 @@ User methods accept the same PrepareRequest and return a PreparedMethod.
 from __future__ import annotations
 
 from bisect import bisect_right
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import prod
 import struct
 from typing import Callable, Mapping
@@ -26,6 +26,7 @@ from tools.artifact.tensor_output import TensorOutput
 
 from .quantization.fp8_row import quantize_bf16_rows
 from .quantization.groupwise import quantize_matrix
+from .quantization.nvfp4 import quantize_blocks
 from .sources.logical import EncodedRows, LogicalSource
 
 UseKey = tuple[str, str]
@@ -240,6 +241,50 @@ def fp8_row_maxabs(request: PrepareRequest) -> PreparedMethod:
     return request.job(produce=produce)
 
 
+def nvfp4_block_maxabs(request: PrepareRequest) -> PreparedMethod:
+    """Quantize logical values with one parent divisor and K16 block scales.
+
+    Activation divisor defaults to one; this is uncalibrated dynamic block
+    quantization, not a claim of checkpoint-specific activation calibration.
+    """
+    if request.target.format != "nvfp4" or len(request.target.shape) != 2:
+        raise ValueError("nvfp4_block_maxabs requires an NVFP4 matrix target")
+    if set(request.parameters) - {"activation_input_divisor"}:
+        raise ValueError("unknown NVFP4 quantization parameter")
+    _preflight(replace(request, parameters={}))
+    n, k = request.target.shape
+    if n % 128 or k % 64:
+        raise ValueError("NVFP4 physical parent requires N%128=0 and K%64=0")
+    activation = AuxiliaryValue.activation_divisor(
+        request.parameters.get("activation_input_divisor", 1.0)
+    )
+    auxiliaries = {}
+    for item in request.inputs:
+        for parameter, input_name in item.uses:
+            if request.policies[(parameter, input_name)] == "AllowA4":
+                key = (parameter, input_name, "activation_input_divisor")
+                auxiliaries[key] = request.auxiliary_overrides.get(key, activation)
+    chunk = max(128, request.rows_per_chunk // 128 * 128)
+
+    def produce(output):
+        maximum = 0.0
+        for begin in range(0, n, chunk):
+            values = request.values(begin * k, min(n, begin + chunk) * k)
+            if not values.dtype.is_floating_point or not bool(torch.isfinite(values).all()):
+                raise ValueError("NVFP4 source must provide finite floating-point values")
+            maximum = max(maximum, float(values.abs().max()))
+        divisor = struct.unpack("<f", struct.pack("<f", 2688.0 / maximum if maximum else 1.0))[0]
+        if not valid_positive_fp32_word(struct.unpack("<I", struct.pack("<f", divisor))[0]):
+            raise ValueError("NVFP4 weight divisor is not finite positive FP32")
+        for begin in range(0, n, chunk):
+            end = min(n, begin + chunk)
+            values = request.values(begin * k, end * k).reshape(end - begin, k)
+            encoded = quantize_blocks(values, divisor)
+            output.write_codes(begin, encoded.codes, encoded.scales, encoded.weight_divisor)
+
+    return request.job(produce=produce, auxiliaries=auxiliaries)
+
+
 def import_encoded(request: PrepareRequest) -> PreparedMethod:
     """Preserve the current FP8/NVFP4 source codes, scales and weight divisor."""
     if (
@@ -297,5 +342,6 @@ METHODS: dict[str, Method] = {
     "cast_direct": cast_direct,
     "grouped_absmax": grouped_absmax,
     "fp8_row_maxabs": fp8_row_maxabs,
+    "nvfp4_block_maxabs": nvfp4_block_maxabs,
     "import_encoded": import_encoded,
 }

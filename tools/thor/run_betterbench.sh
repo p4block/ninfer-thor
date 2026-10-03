@@ -19,7 +19,8 @@ ready() {
 common=(run --endpoint http://127.0.0.1:8000/v1 --model unsloth/Qwen3.8-27B-NVFP4
   --config "$script_dir/betterbench_thor.json" --no-update-check
   --note "revision=${NINFER_REVISION:-unknown}" --note kv=fp8 --note thinking=false
-  --note clocks=jetson_clocks --note target=mixed-nvfp4-fp8)
+  --note clocks=jetson_clocks
+  --note "artifact=${NINFER_ARTIFACT:-/work/models/qwen3_8_27b_thor_dflash2.ninfer}")
 bash "$thor_dir/run_ninfer_thor.sh" single
 ready
 "$python" -u "$script_dir/betterbench_ninfer.py" "${common[@]}" \

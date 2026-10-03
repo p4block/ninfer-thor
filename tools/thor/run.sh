@@ -8,6 +8,7 @@ Usage: run.sh [single|multi]
 
 Starts or replaces the ninfer-thor container, listening on 0.0.0.0:8000.
 Overrides: NINFER_THOR_DIR, NINFER_HOST, NINFER_DRAFT_TOKENS,
+           NINFER_ARTIFACT (explicit container path under /work),
            NINFER_SPEC_BACKEND (dflash2 or mtp; MTP defaults to 4 drafts),
            NINFER_LOCK_CLOCKS=0 (leave existing clock policy; default locks clocks).
 EOF
@@ -35,6 +36,7 @@ case "$spec_backend" in
     exit 2
     ;;
 esac
+artifact="${NINFER_ARTIFACT:-$artifact}"
 draft_tokens="${NINFER_DRAFT_TOKENS:-$default_draft_tokens}"
 max_draft_tokens=15
 if [[ "$spec_backend" == mtp ]]; then max_draft_tokens=5; fi

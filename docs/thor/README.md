@@ -434,6 +434,154 @@ included when `~/ninfer-thor/deep-context-50k-prompt.json` from the tuning run
 exists. A full report is substantially longer than a `--quick` smoke run;
 quick reports are not publishable throughput evidence.
 
+## All-layer NVFP4 experiment
+
+`qwen3_8_27b_nvfp4_all_layers` converts all large projections in the 64 target
+transformer layers to NVFP4 with `AllowA4` activations. The original first-56-layer
+NVFP4 MLPs remain byte-identical; 344 formerly FP8 logical projection bindings
+are requantized from their represented checkpoint values. The resulting target
+uses 256 NVFP4 physical projection parents. FP8 remains for the embedding and
+vocabulary head; BF16/FP32 remains for norms, convolutions and recurrent
+controls. MTP, DFlash2 and the Q4 proposal head retain their original formats.
+This is not an all-tensor or FP4-KV conversion.
+
+The new offline `nvfp4_block_maxabs` method uses K16 E4M3FN block scales, E2M1
+codes and one FP32 divisor per fused parent. It rounds scales before codes with
+nearest/ties-to-even rounding. New activation uses have divisor one and dynamic
+block scaling, without activation-aware calibration. The existing mixed recipe
+remains available; the experiment writes a separate artifact.
+
+Reproduce conversion from the same local checkpoint and companion paths:
+
+```bash
+python3 -m tools.convert --model "$CHECKPOINT" \
+  --recipe qwen3_8_27b_nvfp4_all_layers --source "quantized=$CHECKPOINT" \
+  --source "dflash2=$DFLASH2_CHECKPOINT" --components text,mtp,dflash2 \
+  --resource chat_template.jinja=tools/chat_templates/qwen3_8.jinja \
+  --proposal --device cpu --name qwen3.8-27b-thor-all-layers-nvfp4 \
+  --out "$HOME/ninfer-thor/models/qwen3_8_27b_thor_all_layers_nvfp4.ninfer"
+```
+
+The artifact shrinks from 23,431,064,580 to 19,335,861,252 bytes (17.5%). A byte
+audit checks all 718 unchanged logical weight bindings against the mixed
+artifact; none differ, including vocabulary, original NVFP4 MLPs and companion
+weights. Conversion took 525 seconds on Thor with four CPU threads and did not
+use GPU inference or GPU quantization.
+
+A fixed quality comparison scores the first 4,096 Unicode characters of one
+stream from each domain in `ninfer-ppl-1m-v1`, with separate root histories,
+context 2,048, stride 1,024 and FP8 KV. Both use public `ninfer-perplexity` with
+the same tokenizer and current binary. This covers 6,460 scored tokens and is
+a limited quantization check, not a broad reasoning or deep-recall evaluation.
+
+| Domain | Tokens | Mixed PPL | All-layer NVFP4 PPL |
+| --- | ---: | ---: | ---: |
+| Chinese reference | 2,930 | 12.206824 | 12.535150 |
+| English long form | 1,080 | 5.681942 | 5.915276 |
+| English reference | 1,000 | 4.942526 | 5.192955 |
+| NInfer code | 1,450 | 1.710424 | 1.751130 |
+| Token-weighted overall | 6,460 | 6.007907 | 6.201389 |
+
+Overall PPL rises 3.22%, with mean NLL 1.793076→1.824773; every domain degrades.
+Do not interpret faster inference as equivalent model quality. The baseline
+quality run overlaps CPU conversion, so its scoring wall rate is not a valid
+matched speed comparison.
+
+CPU rounding/packing, global-divisor streaming and conversion checks pass (14
+checks on verified Thor Python 3.12); independent public FP64 projection and
+state suites pass for Linear A4, attention input, GDN input/snapshot/record,
+residual and SwiGLU. The initial snapshot executable threw a cuBLASLt selection
+error; relinking it makes two subsequent full runs pass. The precise cause is
+not established. The first conversion was interrupted to fix missing automatic
+fused-parent packing for the new built-in method; it was not used for inference.
+The five-draft real-model graph integration passes. A corpus-manifest setup
+error and fixture binding-lookup errors were corrected before the comparisons.
+Local checks use verified Python 3.14 for compilation only; local PyTorch and
+the prescribed Python 3.11 interpreter are unavailable.
+
+The matched public-serving comparison uses the same `ninfer-serve` binary,
+artifact tokenizer/template, fixed MAXN clocks, FP8 KV, one request slot, five
+drafts, greedy sampling and 256 generated tokens. Each artifact starts from a
+fresh server. The 50K history is the same synthetic agent log used in scheduling
+tuning; explanation has exactly 50,000 input tokens and code 49,996. One cold
+explanation and two cached continuations per prompt are measured. Code is first
+primed with 32 generated tokens; that changed-query request misses the prefix
+cache on both artifacts and reloads the history. These are client SSE estimates,
+not individual token timestamps or agent-task success measurements.
+
+| Workload, five drafts | Mixed | All-layer NVFP4 | Change |
+| --- | ---: | ---: | ---: |
+| Cold 50K explanation TTFT | 58.603 s | 33.925 s | −42.11% |
+| Same cold request, total duration | 67.000 s | 42.136 s | −37.11% |
+| Cached 50K explanation decode | 30.36 tok/s | 31.06 tok/s | +2.31% |
+| Cached 50K code decode | 47.01 tok/s | 47.67 tok/s | +1.41% |
+| Short code decode | 43.43 tok/s | 45.65 tok/s | +5.12% |
+| Short explanation decode | 28.82 tok/s | 34.65 tok/s | +20.25% |
+
+Short cached TTFT falls from approximately 169 to 143 ms; 50K cached TTFT falls
+from 224–227 to 197–199 ms. All compared greedy output sequences differ. On the
+50K explanation, draft acceptance falls from 179/375 (47.7%) to 172/407 (42.3%),
+offsetting much of the faster target execution. This is a substantial cold
+prefill gain and a small cached-context decode gain at the measured scope.
+Arithmetic, Unicode, structured tool-call and 9K retrieval checks all pass;
+retrieval duration drops from approximately 8.9 to 4.5 seconds. The nine-draft,
+eight-request real-model integration also passes with CUDA graphs and state
+restore. No full 100K/150K Engine comparison or broad recall/reasoning test is
+established by these results.
+
+With the all-layer artifact, widening from five to fifteen drafts helps some
+workloads and hurts others under the same serving conditions:
+
+| Workload | Five drafts | Fifteen drafts | Change |
+| --- | ---: | ---: | ---: |
+| Cached 50K explanation | 31.06 tok/s | 25.55 tok/s | −17.75% |
+| Cached 50K code | 47.67 tok/s | 57.17 tok/s | +19.92% |
+| Short code | 45.65 tok/s | 52.78 tok/s | +15.61% |
+| Short explanation | 34.65 tok/s | 38.08 tok/s | +9.91% |
+
+The 50K explanation accepts 172/1,193 drafts (14.4%) with the wider window,
+versus 172/407 (42.3%) with five. The fifteen-draft graph/state integration
+passes, but widening is not a universal decode improvement. Five remains the
+recommendation for this measured deep-context explanation workload. These
+window results compare the experimental artifact to itself, not a freshly
+repeated mixed-model fifteen-draft run.
+
+A separate public `ninfer_bench` Nsight Systems capture uses the same 50K
+input-token fixture, 64 output tokens, five drafts, FP8 KV, 1,024-token prefill
+chunks and fixed clocks. Captured kernel time falls from 58.49 to 34.11 seconds;
+prefill falls from 58.54 to 34.16 seconds. The FP8-KV attention kernel alone now
+accounts for 46.3% of kernel time, versus approximately 27.0% before. Remaining
+cost includes NVFP4 contractions, separate BF16 finish/epilogue kernels,
+activation quantization, GDN and convolution. FP8 vocabulary-head work remains.
+This is a cold-prefill-plus-decode trace, not a decode-only bandwidth-counter
+measurement. It supports targeting attention and speculation acceptance next;
+it does not establish achieved memory bandwidth or agent-task quality.
+
+Launch the experimental artifact explicitly:
+
+```bash
+NINFER_ARTIFACT=/work/models/qwen3_8_27b_thor_all_layers_nvfp4.ninfer \
+  NINFER_DRAFT_TOKENS=5 bash ~/ninfer-thor/run_ninfer_thor.sh single
+# Restore the mixed model with the usual preset:
+bash ~/ninfer-thor/run_ninfer_thor.sh single
+```
+
+`NINFER_ARTIFACT` chooses an explicit container path under `/work`; preset,
+backend, KV storage and other launch choices still apply. The unfinished
+BetterBench session was interrupted for this sequential experiment, with its
+logs retained. The `ninfer-betterbench` tmux session queues full mixed-model
+then experimental-artifact runs sequentially, with reports under
+`~/ninfer-thor/reports/betterbench-20261003-nvfp4/{mixed,nvfp4}/`.
+Each runs short-category decode, cached 50K decode with fifteen and five drafts,
+then multi-user decode, cold prefill through 150K and concurrency. The queue
+restores the mixed multi-user preset after both runs. Reports are asynchronous;
+these tables do not claim completed BetterBench results.
+
+```bash
+tmux attach -t ninfer-betterbench
+# Completed runs write single.html, agentic50k.html, agentic50k-k5.html and multi.html.
+```
+
 ## Verification
 
 All five affected NVFP4 projection suites pass their numerical and CUDA graph

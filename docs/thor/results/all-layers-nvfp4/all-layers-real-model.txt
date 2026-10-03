@@ -1,0 +1,1 @@
+ok K=5 B=1 graph=1 optimized=1 accepted=18/20 state_d2h=0 state_h2d=0

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .methods import cast_direct, fp8_row_maxabs, grouped_absmax, import_encoded
+from .methods import cast_direct, fp8_row_maxabs, grouped_absmax, import_encoded, nvfp4_block_maxabs
 
 Q4 = "q4_g64_fp16"
 Q5 = "q5_g64_fp16"
@@ -174,10 +174,32 @@ def qwen3_8_27b_nvfp4(model, recipe, sources):
         )
 
 
+def qwen3_8_27b_nvfp4_all_layers(model, recipe, sources):
+    """Preserve imported NVFP4 MLPs; quantize all remaining large layer projections.
+
+    Vocabulary weights, norms, recurrent controls and companion models retain
+    the mixed recipe's representations. Previously FP8 weights are requantized
+    from their represented values, with uncalibrated activation divisor one.
+    """
+    qwen3_8_27b_nvfp4(model, recipe, sources)
+    for name, parameter in model.parameters.items():
+        if not name.startswith("text/layers/") or not parameter.projection:
+            continue
+        if name.endswith(("/gdn/a_projection", "/gdn/b_projection")):
+            continue
+        layer = int(name.split("/")[2])
+        if "/mlp/" in name and layer < 56:
+            continue
+        recipe.assign(name, format="nvfp4", method=nvfp4_block_maxabs,
+                      source=model.source(name, sources["quantized"]),
+                      activation_policy="AllowA4")
+
+
 RECIPES = {
     "qwen3_6_27b": qwen3_6_27b,
     "qwen3_6_27b_nvfp4": qwen3_6_27b_nvfp4,
     "qwen3_8_27b": qwen3_8_27b,
     "qwen3_8_27b_nvfp4": qwen3_8_27b_nvfp4,
+    "qwen3_8_27b_nvfp4_all_layers": qwen3_8_27b_nvfp4_all_layers,
     "qwen3_6_35b_a3b": qwen3_6_35b_a3b,
 }

@@ -57,6 +57,7 @@ The built-in recipes are ordinary Python functions in
 | `qwen3_6_35b_a3b` | Q4 experts, Q5/Q6 expert down, Q8 shared/projection weights | None |
 | `qwen3_6_27b_nvfp4` | Imported NVFP4, selected BF16 projections, Q8 vocabulary weights | `quantized` |
 | `qwen3_8_27b_nvfp4` | Imported NVFP4/FP8, FP8 embedding generated from BF16 | `quantized` |
+| `qwen3_8_27b_nvfp4_all_layers` | NVFP4 for all large transformer-layer projections; retain mixed vocabulary and companion formats | `quantized` |
 
 These names select conversion choices. Runtime execution is selected from the architecture,
 configuration and actual bindings stored in the artifact. `--name` sets the public model name;
@@ -154,12 +155,29 @@ The converter currently writes these formats:
 | `bf16`, `fp32`, `int32` | `cast_direct` | Direct words through the source reader |
 | `q4_g64_fp16`, `q5_g64_fp16`, `q6_g64_fp16`, `q8_g32_fp16` | `grouped_absmax` | Supply a custom method/source if needed |
 | `fp8_e4m3fn_row_bf16` | `fp8_row_maxabs` | `import_encoded` |
-| `nvfp4` | Supply a custom quantizer | `import_encoded` |
+| `nvfp4` | `nvfp4_block_maxabs` | `import_encoded` |
 
 `grouped_absmax` stores one FP16 scale per group and signed integer codes. `fp8_row_maxabs` first
 rounds input values to BF16, then produces E4M3FN codes and one BF16 multiplier per row.
 `import_encoded` preserves compatible code and scale words, including NVFP4's matrix weight divisor.
 It does not dequantize and requantize them.
+
+`nvfp4_block_maxabs` scans the complete physical parent for a global maximum,
+stores the nearest positive FP32 divisor `2688 / max_abs` (one for an all-zero
+parent), then quantizes each K16 block using an E4M3FN scale and E2M1 codes.
+Scales round before codes, both with nearest/ties-to-even rounding. Numerical
+work uses bounded CPU row chunks; packing remains the artifact codec's job.
+The method supports automatic fused-parent packing and takes the optional
+`activation_input_divisor` parameter, default one, for `AllowA4` uses. This is
+uncalibrated dynamic block quantization; it does not perform activation-aware
+calibration or a quality-preserving optimization.
+
+The all-layers recipe preserves the original NVFP4 MLPs and requantizes the
+remaining FP8 layer projections from their represented values. It retains
+BF16/FP32 norms, convolutions and recurrent controls, FP8 embedding/output head,
+and the original MTP/DFlash/proposal representations. It covers all transformer
+layers, rather than converting every tensor or the KV cache to FP4. See the
+[Thor results](thor/README.md) for measured speed and quality costs.
 
 The exact numeric and packing rules are in [numeric formats](maintainer/tensor-formats.md) and
 [storage layouts](maintainer/storage-layouts.md). Source format names alone do not establish
