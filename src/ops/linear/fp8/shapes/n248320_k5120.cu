@@ -36,7 +36,22 @@ void launch_ksplit(const Tensor& x, const Weight& weight, Tensor& out, cudaStrea
     if (tokens <= 32) return launch_tile<32>(x, weight, out, stream);
     if (tokens <= 40) return launch_tile<40>(x, weight, out, stream);
     if (tokens <= 48) return launch_tile<48>(x, weight, out, stream);
+#ifdef NINFER_THOR
+    if (tokens <= 56) return launch_tile<56>(x, weight, out, stream);
+    if (tokens <= 80) return launch_tile<80>(x, weight, out, stream);
+    if (tokens <= 96) return launch_tile<96>(x, weight, out, stream);
+#endif
     throw std::logic_error("fp8 K-split exceeds shape capacity");
+}
+
+bool uses_ksplit(int tokens) {
+#ifdef NINFER_THOR
+    // The sliced-K schedule wins at these widths on Thor. Preserve Tail64 at
+    // T=57–64: widening sliced-K to 64 measured slower than the existing GEMM.
+    return tokens <= 56 || (tokens > 64 && tokens <= 96);
+#else
+    return tokens < 42;
+#endif
 }
 
 // Measured schedules for [248320,5120]. The 128-token
@@ -55,7 +70,7 @@ void launch_schedule(const Tensor& x, const Weight& weight, Tensor& out, cudaStr
 }
 
 void launch_tail(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t stream) {
-    if (x.ne[1] < 42) {
+    if (uses_ksplit(x.ne[1])) {
         launch_ksplit(x, weight, out, stream);
     } else if (x.ne[1] <= Tail64::kBlockTokens) {
         launch_schedule<Tail64>(x, weight, out, stream);
@@ -65,7 +80,7 @@ void launch_tail(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_
 }
 
 void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t stream) {
-    if (x.ne[1] < 42) return launch_ksplit(x, weight, out, stream);
+    if (uses_ksplit(x.ne[1])) return launch_ksplit(x, weight, out, stream);
 
     const std::int32_t tokens = x.ne[1];
     if (tokens <= Tail64::kBlockTokens) {

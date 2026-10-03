@@ -38,7 +38,7 @@ python3 -m tools.convert --model "$CHECKPOINT" \
   --resource chat_template.jinja=tools/chat_templates/qwen3_8.jinja \
   --proposal --name qwen3.8-27b-thor-dflash2 \
   --out "$HOME/ninfer-thor/models/qwen3_8_27b_thor_dflash2.ninfer"
-bash tools/thor/run.sh
+bash tools/thor/run.sh multi
 ```
 
 The tested source is `unsloth/Qwen3.8-27B-NVFP4` revision
@@ -56,20 +56,37 @@ BF16 candidate selector. All 659 physical target objects (20.38 GB) were checked
 byte for byte against the original artifact; all 963 logical target bindings
 retain identical data. The deployed resident weights occupy 21.4 GiB.
 
-The launch script defaults to DFlash2 with nine drafts, FP8 KV, eight concurrent request slots,
-262,144 total KV tokens, 1,024-token prefill chunks, and automatic restart.
-It listens on `127.0.0.1:8000`; use SSH forwarding for remote access.
+Choose the preset on the deployed Thor:
+
+```bash
+bash ~/ninfer-thor/run_ninfer_thor.sh single
+bash ~/ninfer-thor/run_ninfer_thor.sh multi
+```
+
+| Preset | Active request slots | DFlash2 draft tokens | Intended workload |
+| --- | ---: | ---: | --- |
+| `single` | 1 | 15 | Fastest measured individual decode; additional requests queue |
+| `multi` (default) | 8 | 9 | Shared service with a balanced verification window |
+
+Both presets use FP8 KV, 262,144 total KV tokens, 1,024-token prefill chunks,
+automatic restart, and the private LAN listener at `0.0.0.0:8000`.
+The one-slot preset reserves 9.23 GiB of runtime GPU memory versus approximately
+15.2 GiB for eight slots, in addition to the same 21.4 GiB of resident weights.
+Its measured startup takes 10.3 seconds. The fresh one-slot baseline reaches
+88.53 tok/s for code and 38.23 tok/s for explanation with approximately 166 ms
+short-prompt TTFT; this measurement precedes the larger-T head extension.
+The OpenAI-compatible base URL is `http://10.69.0.3:8000/v1`.
+The script validates the mode, image and artifact, then stops and replaces the
+existing container. Switching modes interrupts active requests and reloads the
+model; `docker restart` keeps the current preset. `--help` lists the choices.
 `NINFER_THOR_DIR` overrides the mounted working directory and
 `NINFER_DRAFT_TOKENS` overrides the draft window, within 1–15 for DFlash2.
 `NINFER_SPEC_BACKEND=mtp` selects the original MTP artifact and defaults to four
-drafts, within 1–5. `NINFER_HOST=0.0.0.0` enables the private LAN listener; this
-was explicitly requested for the deployed Thor at `10.69.0.3`.
-For the fastest measured single-request mode, use `NINFER_DRAFT_TOKENS=15`;
-its four-request explanation throughput is lower than the balanced default.
+drafts, within 1–5, while retaining the chosen preset's request-slot count.
+`NINFER_HOST=127.0.0.1` restricts listening to the Thor itself.
 The original MTP artifact remains available for the MTP backend.
 Inspect the service with `docker logs ninfer-thor`; stop it with
-`docker stop ninfer-thor`. Recreating it requires removing that stopped container
-before running the launch script again.
+`docker stop ninfer-thor`.
 
 ## Measured results
 
@@ -124,8 +141,49 @@ from 7.158 ms to 4.918 ms, a 31.3% reduction. Across T=1–41, the final curve's
 largest latency improvement is 32.4%; its worst measured increase is 0.92% at
 T=29. The first candidate regressed up to 2.8% in the T=25–32 interval; the final
 implementation retains the original schedule there. Larger-T head GEMMs still
-have room: T=64 measured 8.37 ms and roughly 156 GB/s implied traffic. They also
-help explain why fifteen drafts do not dominate batched inference.
+have room: T=64 measured 8.37 ms and roughly 156 GB/s implied traffic.
+
+The next head comparison compiled a single candidate-by-extent matrix at twelve
+extents within T=42–96 and qualified every eligible candidate against independently decoded
+FP8 weights and an FP64 dot-product oracle before timing. Two K warps win at
+T=42–56 and T=65–96. The existing GEMM remains at T=57–64: the sliced-K
+64-token two-warp alternative regresses by up to 2.9% there. Across the whole
+matrix, a padded 96-token/four-warp candidate was 52.3% slower at T=64 and was
+rejected. The selected routes retain BF16
+activations, FP32 accumulation and zero caller workspace; no weights change.
+Raw qualification and timings are in [results](results/head-wide-sweep-qualified.csv).
+The final public Linear curve improves latency by 8.6–20.8% at T=42–56 and
+5.1–26.9% at T=65–96. T=80 falls from 14.00 ms to 10.48 ms. The unchanged
+T=57–64 interval measures between a 0.19% improvement and a 0.37% increase;
+these small changes are retained in the results, rather than classified as a
+demonstrated speedup. The public FP8 A16 oracle suite passes the new boundaries,
+larger calls with sliced tails, output guards and graph replay. The real DFlash2
+Engine test also passes at K=9 with eight active request slots, CUDA graphs,
+sampling, context restore and no draft-state host transfers.
+
+The deployed extension was compared with a fresh same-preset baseline using the
+same two warmed repetitions, 256 output tokens and code/explanation prompts:
+
+| Active requests | Code aggregate before → after | Explanation aggregate before → after |
+| --- | ---: | ---: |
+| 4 | 137.54 → 142.83 tok/s | 93.02 → 97.71 tok/s |
+| 8 | 147.37 → 148.91 tok/s | 106.99 → 108.08 tok/s |
+
+At eight requests, aggregate rates increase 1.05% and 1.02%, while per-request
+median decode rises from 25.22 to 25.58 and 18.21 to 18.46 tok/s. At four
+requests, higher aggregate rates accompany slightly lower per-request median
+decode: 45.21 to 45.03 (−0.39%) and 27.69 to 27.62 (−0.27%) tok/s.
+Four-request median TTFT increases from 699 to 769 ms for code and 702 to 719 ms
+for explanation. Report both metrics; aggregate rates alone do not describe
+individual response latency.
+
+Greedy responses changed in 8/16 eight-request code samples and 12/16 explanation
+samples, and in 2/8 and 4/8 four-request samples. The target weights are unchanged,
+but floating-point reduction schedules and live batching can change token
+decisions. These small, content-dependent end-to-end gains are workload results,
+not evidence of bitwise identity or a broad quality evaluation. The independent
+numerical criteria, Engine checks and four API smoke cases pass. Full 262K
+context and RTX 5090 execution remain unverified for this extension.
 
 The cooperative BF16 GDN gating launcher previously assumed SM120 residency.
 A standalone large-prefill integration check aborted with
@@ -182,6 +240,30 @@ fix; compare its timings, rather than its old reference percentages. A stale
 tokenizer test executable was relinked, and one oversized shared-memory sweep
 candidate was excluded before the final qualification; neither was deployed.
 The changed GPU routes were verified on Thor; RTX 5090 tests were not rerun.
+
+## Remaining 5090 assumptions
+
+CUDA device properties on this Thor report 20 SMs, 32 MiB of L2, 228 KiB of shared
+memory per SM, a 227 KiB opt-in per-block limit, and 1,536 threads per SM.
+The [RTX 5090 architecture whitepaper](https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf)
+specifies 170 SMs, 96 MiB of L2 and 1,792 GB/s memory bandwidth. These differences
+affect launch schedules and operand reuse even when both chips support FP4.
+
+The following are source-level tuning candidates; their speed impact has not
+been measured on Thor or changed in this iteration:
+
+| Assumption | Affected path | What to measure next |
+| --- | --- | --- |
+| `kCausalAttentionSmCount = 170` | FP8/INT8/BF16 KV partitioning and prefill tiling | Long-context decode and split/merge traffic with a Thor-sized budget |
+| 170-CTA split-K waves | FP8 A8 input, GDN, residual and MLP projection tails | Prefill and partially filled verification tiles; extra reductions may cost more on 20 SMs |
+| 99 KiB shared-memory caps | Linear and attention template schedules | Wider tiles and deeper staging within Thor's larger limit; more shared memory can reduce occupancy |
+| 170-block RMSNorm and 1,020-block RoPE frontiers | Gating and position encoding | Prefill grid sizes and register occupancy; these ordinary launches are distinct from the fixed cooperative-launch failure |
+| Fixed relative GDN recurrence tile costs | Chunked linear-attention prefill | Re-measure tile costs; this path already uses the actual device SM count |
+| 5090 format crossovers and Q4 draft-head schedule | Mixed FP8/NVFP4 target and speculative head | Small-batch decode versus prefill under Thor's memory bandwidth and cache limits |
+
+The measured FP4 MLPs already approach the memory bandwidth limit, so tuning
+these schedules and increasing accepted tokens per target pass is more promising
+than increasing advertised arithmetic utilization alone.
 
 ## Verification
 

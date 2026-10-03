@@ -76,6 +76,18 @@ For Qwen3.8-27B, start with a bounded context and then increase it after checkin
 
 See [Thor deployment and measured results](docs/thor/README.md) for the tested
 Qwen3.8 conversion, persistent service, verification, and tuning evidence.
+For the deployed Docker image and converted artifacts, choose a serving preset:
+
+```bash
+bash tools/thor/run.sh single  # One active request, DFlash2 with 15 drafts
+bash tools/thor/run.sh multi   # Eight active request slots, DFlash2 with 9 drafts (default)
+```
+
+The script replaces the existing `ninfer-thor` container and listens on
+`0.0.0.0:8000` for the private LAN. On the deployed host it is also available as
+`~/ninfer-thor/run_ninfer_thor.sh`. Switching modes interrupts active requests.
+Single mode favors individual decode speed; multi mode favors shared throughput.
+See the Thor guide for measurements and environment overrides.
 
 Tests and benchmarks are excluded from the default build. `cmake --preset release` configures
 the same product build; `cmake --preset dev` also enables tests and benchmarks and finds a

@@ -45,8 +45,15 @@ int run_fp8_a16() {
         Invocation{42, CallForm::Policy, ops::LinearPolicy::AllowA8},
         Invocation{48, CallForm::Policy, ops::LinearPolicy::AllowA4},
         Invocation{49, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{56, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{57, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{63, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{64, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{65, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{79, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{80, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{81, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{95, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{96, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{97, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{128, CallForm::Policy, ops::LinearPolicy::A16Only},
@@ -55,15 +62,23 @@ int run_fp8_a16() {
         Invocation{161, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{192, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{193, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{207, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{208, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{209, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{224, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{256, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{257, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{288, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{289, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{304, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{305, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{312, CallForm::Policy, ops::LinearPolicy::A16Only},
+        Invocation{313, CallForm::Policy, ops::LinearPolicy::A16Only},
         Invocation{1024, CallForm::Policy, ops::LinearPolicy::AllowA4},
     };
     for (int t = 1; t <= 41; ++t)
         vocabulary_invocations.push_back({t, CallForm::Policy, ops::LinearPolicy::A16Only});
-    for (int t : {7, 25, 41, 65, 128})
+    for (int t : {7, 25, 41, 48, 56, 64, 65, 80, 96, 128, 208, 312})
         vocabulary_invocations.push_back({t, CallForm::Policy, ops::LinearPolicy::A16Only, true});
     failures += run_shape("FP8_A16", ActivationCompute::A16, make_fp8_weight,
                           {248320, 5120, 823U, Comparison::Sampled, true, vocabulary_invocations});
