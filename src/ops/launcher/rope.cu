@@ -45,6 +45,21 @@ template <RopeKernelMode Mode, int QHeads, int KHeads>
 void launch_fixed(const Tensor& positions, Tensor* q, Tensor* k, cudaStream_t stream) {
     const int tokens = positions.ne[0];
     int block        = kSmallBlock;
+#if defined(NINFER_THOR)
+    if constexpr (kTextMode<Mode> && KHeads > 0) {
+        // Paired target projections: one full-head CTA wins the short
+        // verification grid. Beyond Thor's six-CTA wave, smaller blocks avoid
+        // the 5090 schedule's partially filled waves.
+        const int full_head_limit = QHeads == 24 ? 16 : 40;
+        block = tokens <= full_head_limit ? (QHeads + KHeads) * 32
+                : tokens <= 120          ? 256
+                : tokens <= 256          ? 192
+                : tokens <= 512          ? 160
+                                         : 128;
+        launch_fixed_block<Mode, QHeads, KHeads>(positions, q, k, block, stream);
+        return;
+    }
+#endif
     if constexpr (kTextMode<Mode>) {
         if (tokens <= 6) {
             block = (QHeads + KHeads) * 32;
@@ -82,8 +97,17 @@ bool launch_fixed_pair(const Tensor& positions, int rotary_dim, float theta, Ten
         const int tokens = positions.ne[0];
         if (tokens <= 16) {
             launch_dflash_split<5, 32, 8>(positions, &q, &k, stream);
+#if defined(NINFER_THOR)
+        } else if (tokens <= 40) {
+            launch_fixed_block<RopeKernelMode::DflashText1D, 32, 8>(positions, &q, &k, 512, stream);
+        } else if (tokens <= 80) {
+            launch_fixed_block<RopeKernelMode::DflashText1D, 32, 8>(positions, &q, &k, 256, stream);
+        } else if (tokens <= 256) {
+            launch_fixed_block<RopeKernelMode::DflashText1D, 32, 8>(positions, &q, &k, 192, stream);
+#else
         } else if (tokens <= 400) {
             launch_dflash_split<8, 32, 8>(positions, &q, &k, stream);
+#endif
         } else {
             launch_fixed_block<RopeKernelMode::DflashText1D, 32, 8>(positions, &q, &k, 160, stream);
         }

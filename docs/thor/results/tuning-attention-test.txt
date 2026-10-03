@@ -1,0 +1,1 @@
+PASS causal_softmax_attention fp8-e4m3fn-row256 public-contract correctness

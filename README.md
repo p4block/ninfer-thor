@@ -87,6 +87,8 @@ The script replaces the existing `ninfer-thor` container and listens on
 `0.0.0.0:8000` for the private LAN. On the deployed host it is also available as
 `~/ninfer-thor/run_ninfer_thor.sh`. Switching modes interrupts active requests.
 Single mode favors individual decode speed; multi mode favors shared throughput.
+The launcher locks Thor clocks by default; `NINFER_LOCK_CLOCKS=0` keeps the existing
+clock policy. The Thor guide also documents the BetterBench tmux report runner.
 See the Thor guide for measurements and environment overrides.
 
 Tests and benchmarks are excluded from the default build. `cmake --preset release` configures

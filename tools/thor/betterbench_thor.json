@@ -1,0 +1,28 @@
+{
+  "greedy": true,
+  "seed": 1234,
+  "top_p": 1.0,
+  "top_k": null,
+  "warmup": 3,
+  "runs_per_category": 20,
+  "concurrency_levels": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "concurrency_requests": 48,
+  "prefill_depths": [
+    2000,
+    8000,
+    32000,
+    50000,
+    64000,
+    100000,
+    150000
+  ],
+  "prefill_runs": 8,
+  "prefill_warmup": 2,
+  "max_model_len": 262144,
+  "timeout_s": 1200.0
+}

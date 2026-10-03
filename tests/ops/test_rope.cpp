@@ -461,6 +461,17 @@ int main() {
     }
     failures += run_pair_case({"27b text decode", 256, 64, 1, 1, kTextTheta}, 24, 4, 31);
     failures += run_pair_case({"27b text mrope prefill", 256, 64, 3, 128, kTextTheta}, 24, 4, 4096);
+    for (int tokens : {15, 16, 17, 39, 40, 41, 79, 80, 81, 119, 120, 121,
+                       255, 256, 257, 511, 512, 513, 1024}) {
+        for (int axes : {1, 3}) {
+            failures += run_pair_case({"target prefill", 256, 64, axes, tokens, kTextTheta},
+                                      24, 4, 8192);
+            failures += run_pair_case({"target companion prefill", 256, 64, axes, tokens, kTextTheta},
+                                      16, 2, 8192);
+        }
+        failures += run_pair_case({"dflash2 prefill", 128, 128, 1, tokens, kTextTheta},
+                                  32, 8, 8192);
+    }
     failures +=
         run_pair_case({"35b text native-context tail", 256, 64, 1, 7, kTextTheta}, 16, 2, 262'137);
     failures += run_pair_case({"35b text mrope", 256, 64, 3, 7, kTextTheta}, 16, 2, 2048, 16, 8);

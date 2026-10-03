@@ -249,21 +249,190 @@ The [RTX 5090 architecture whitepaper](https://images.nvidia.com/aem-dam/Solutio
 specifies 170 SMs, 96 MiB of L2 and 1,792 GB/s memory bandwidth. These differences
 affect launch schedules and operand reuse even when both chips support FP4.
 
-The following are source-level tuning candidates; their speed impact has not
-been measured on Thor or changed in this iteration:
+The current scheduling iteration evaluates attention partition budgets, FP8 A8
+split-K waves and shared-memory schedules, paired RoPE, gated RMSNorm and GDN
+recurrence tiles. The workload priority is agent sessions around **50K tokens**;
+100K and 150K are secondary. The 262K launch limit remains a capacity setting,
+not a validated recall or performance claim. No recall-quality benchmark has
+established a safe context cutoff.
 
-| Assumption | Affected path | What to measure next |
-| --- | --- | --- |
-| `kCausalAttentionSmCount = 170` | FP8/INT8/BF16 KV partitioning and prefill tiling | Long-context decode and split/merge traffic with a Thor-sized budget |
-| 170-CTA split-K waves | FP8 A8 input, GDN, residual and MLP projection tails | Prefill and partially filled verification tiles; extra reductions may cost more on 20 SMs |
-| 99 KiB shared-memory caps | Linear and attention template schedules | Wider tiles and deeper staging within Thor's larger limit; more shared memory can reduce occupancy |
-| 170-block RMSNorm and 1,020-block RoPE frontiers | Gating and position encoding | Prefill grid sizes and register occupancy; these ordinary launches are distinct from the fixed cooperative-launch failure |
-| Fixed relative GDN recurrence tile costs | Chunked linear-attention prefill | Re-measure tile costs; this path already uses the actual device SM count |
-| 5090 format crossovers and Q4 draft-head schedule | Mixed FP8/NVFP4 target and speculative head | Small-batch decode versus prefill under Thor's memory bandwidth and cache limits |
+| Path | Selected policy or disposition |
+| --- | --- |
+| FP8 KV attention | Thor-sized grouped partition budgets by heads, batch and verification width; tiled prefill uses a 20-CTA wave. Short single-request caches retain the original budget. INT8/BF16 KV partitioning is not retuned. |
+| FP8 attention input | Bulk split-K wave reduced from 170 to 20; workspace reservation starts at T=289 and matches the actual schedule. |
+| FP8 residual projections | Remove split-K from medium schedules for K=6144 and K=17408; retain small and large schedules. |
+| Paired text and DFlash2 RoPE | Thor-specific block sizes by token extent; other position-encoding routes keep their existing dispatch. |
+| Larger shared-memory FP8 tiles | Rejected: the candidate matrix includes slowdowns up to 381.9%; retain the existing caps. |
+| Gated RMSNorm | Retain the current prefetch frontier: unprefetched small extents are 26–28% slower. |
+| GDN recurrence | Retain DV64 for the active 48-head model: smaller tiles are up to 42.8% slower at T=1024. |
+| Other format crossovers and Q4 draft head | Not retuned in this iteration. |
 
-The measured FP4 MLPs already approach the memory bandwidth limit, so tuning
-these schedules and increasing accepted tokens per target pass is more promising
-than increasing advertised arithmetic utilization alone.
+The candidate matrices are finite task-local experiments, qualified before timing.
+Packed FP8 operands are independently decoded; attention and FP8 dot products
+use FP64 references, RoPE uses independent FP64 trigonometry, and GDN checks
+output and final state against its independent oracle. Numerical criteria match
+the public suites; no thresholds were relaxed to qualify candidates. Matrix
+inputs cover both registered attention geometries where applicable, the active
+27B GDN geometry, verification extents and 1,024-token prefill.
+
+### Scheduling measurements
+
+Baseline is commit `27048cd`, using the same artifact, MAXN, fixed CPU 2601 MHz,
+GPU 1575 MHz and EMC 4266 MHz. CUDA is 13.0.88 and the driver is 595.78.
+Initial candidate timings were taken while CPU/GPU clocks still scaled despite
+EMC being fixed. Those records remain in the working results as
+`dynamic-public-*`; published before/after public Op and Engine results were
+repeated after verifying fixed clocks. The launcher now runs `jetson_clocks`
+automatically; `NINFER_LOCK_CLOCKS=0` opts out. This uses a CPU-only privileged
+maintenance container, followed by the ordinary inference container.
+
+| Public route / workload | Result versus baseline |
+| --- | --- |
+| FP8 append attention, 72 batch/width/context extents | Median latency −7.83%; 45 improve >2%, 3 regress >2%; range −35.13% to +10.66%. |
+| Active 24-head attention, longer single-request caches | Measured latency reductions approximately 5.6–22.5% at 2K–32K. |
+| FP8 tiled prefill with 8K cached context | 24-head T=128 −10.75%, T=1024 −7.8%; 16-head T=128 −13.95%, T=1024 −0.29%. |
+| Fused FP8 attention input | T=289–1024 reduces latency by 0.14–4.39%; T=256/288 essentially unchanged. |
+| Plain FP8 attention-input geometry | T=1024 −4.78%; T=896 **+2.71%**, retained as a measured tradeoff. |
+| Fused FP8 residual K=6144 | T=256 −14.27%, T=768 −6.65%; other measured extents within +0.3%. |
+| Fused FP8 residual K=17408 | T=192/256/384 −13.49/−10.29/−10.82%; other extents within +0.3%. |
+| Paired RoPE, 35 public extents | Median −11.0%, range −35.47% to **+14.19%**. |
+
+Attention/projection measurements use public Ops, CUDA graphs, warmup four and
+16 measured repetitions; attention/input use cold 256 MiB cache flushes. RoPE
+uses the public benchmark's warm eager timings. Its saved logs precede the
+bandwidth-reference metadata fix; compare microseconds, not their old 5090
+roofline percentages.
+
+Adverse measurements remain visible: secondary 16-head B1/context-256 attention
+is +10.66% at width one, +3.10% at width ten and +2.58% at width sixteen even
+with the original partition budget restored. DFlash2 RoPE T=7 is +14.19%
+(approximately 4.51→5.15 µs), although that split-five dispatch is unchanged.
+Their cause is unresolved; these observations are not dismissed as noise.
+Three alternating baseline/selected repeats give zero median change for the
+secondary width-ten/sixteen cases and DFlash2 T=16, and +0.67% for DFlash2 T=7
+(the baseline repeated medians span 4.45–5.63 µs). The secondary width-one
+attention difference persists at +8.57%; its cause remains unresolved. The
+original adverse measurements are preserved rather than replaced.
+Attention-input workspace at T=1024 drops from 27,529,216 to 7,868,416 bytes;
+T=289/384 adds partial storage and a reduction where the baseline was unsplit.
+
+| Public Engine workload, two warmed repetitions | Baseline | Tuned |
+| --- | ---: | ---: |
+| Single, short code, decode | 88.62 tok/s | 88.51 tok/s |
+| Single, short explanation, decode | 38.24 tok/s | 38.23 tok/s |
+| Four requests, short code, aggregate | 137.63 tok/s | 137.65 tok/s |
+| Four requests, short explanation, aggregate | 93.09 tok/s | 93.02 tok/s |
+| Single, 8,674-token cached context, decode | 32.51 tok/s | 38.78 tok/s |
+| Same cached-context request, total duration | 8.029 s | 6.759 s |
+
+Short workloads change by less than 0.2%; the 8.7K-context rate improves 19.3%
+and total duration falls 15.8%. These client estimates use 256 output tokens,
+greedy sampling and disabled thinking. Both long-context outputs and four of
+eight concurrent explanation outputs differ; independent Op qualification and
+smoke checks establish the tested correctness scope, not sequence identity.
+The long-context prompt is prefix-cached, so its approximately 182 ms TTFT does
+not measure cold prefill. Weight bandwidth still limits short requests; deeper
+attention and prefill require separate measurements.
+
+The subsequent deep-context comparison uses exactly **50,000 prompt tokens**,
+a synthetic agent tool-history prompt calibrated with the server tokenizer,
+and the same 256-token greedy request on both builds. One cold request and two
+cached continuations were measured per build. Cached median decode rises from
+24.21 to 28.25 tok/s (**+16.7%**); cached request duration falls from 10.762 to
+9.249 seconds. Cold TTFT falls from 59.393 to 58.607 seconds (**−1.3%**), so cold
+prefill remains the largest waiting cost. This narrow synthetic workload does
+not establish performance or recall on real agent trajectories. Generated
+texts differ between builds, as recorded in the raw JSONL evidence.
+
+A further independently qualified attention matrix covers active 24-head
+geometry at 32K, 50K, 100K and 150K, batches one/four and widths one/ten/sixteen.
+All 96 candidates pass the FP64 reference before timing at fixed clocks. At
+50K, the selected single-request policy reduces attention latency by 10.86%
+(width one), 3.05% (width ten) and 2.64% (width sixteen). The selected four-request
+decode policy gains 7.22%; four-request verification retains the old budget
+because the smaller alternatives regress about 24%. At 100K/width sixteen the
+chosen policy is 0.44% slower. These deep-context results support retaining the
+coherent current dispatch rather than choosing individual best-case anchors.
+
+The deep prefill matrix also qualifies all 16 candidates at T=1024 and
+32K/50K/100K/150K cached depths. The selected tiled policy reduces latency by
+2.93/2.20/1.66/1.21% respectively and workspace from 177,537,024 to
+126,812,160 bytes. Increasing its wave to 40 or 80 yields the same partition
+schedule and no material further gain. This supports keeping the 20-CTA policy;
+it does not remove the roughly minute-long cold 50K prefill cost.
+
+At 50K, draft-window testing (5/9/15) gives cached decode medians
+**30.34/25.92/28.25 tok/s** on the synthetic history. Five drafts gain another
+7.37% over fifteen, but short code falls to 43.40 tok/s and short explanation to
+28.80 tok/s, versus 88.51/38.23 with fifteen. The output sequences differ, so
+these are workload measurements, not pure kernel speedups. Fifteen remains the
+single-user default; use the existing override for the measured deep workload:
+
+```bash
+NINFER_DRAFT_TOKENS=5 bash ~/ninfer-thor/run_ninfer_thor.sh single
+# Return to the default single-user window:
+bash ~/ninfer-thor/run_ninfer_thor.sh single
+```
+
+A measured-range Nsight Systems profile of the public Engine at 50K input plus
+64 generated tokens attributes **51.25% of GPU kernel time to FP8 projections,
+27.01% to attention, 11.14% to native FP4 contraction/finish work, 2.91% to GDN,
+and 7.69% to other kernels**. It uses the token-ID benchmark corpus, five drafts,
+FP8 KV, 1,024-token prefill chunks, fixed clocks, no context retention and no
+warmup; load and decode-graph priming are outside the capture. It measures cold
+prefill plus decode, rather than the synthetic agent-history chat. Prefill is
+58.536 seconds (854 tok/s), decode 1.220 seconds. The total 58.487 seconds of
+summed kernel time identifies bulk FP8 projections and tiled attention as the
+largest remaining cold-context costs; it does not establish hardware-counter
+bandwidth utilization. The five-draft real-model graph integration also passes.
+
+An extended RMSNorm stress fixture at T=1024 failed the existing gross-error
+bound: maximum error 0.05703 against bound 0.04500. Both candidate schedules
+and the unchanged public Op are bit-identical, and the nearest BF16 cast of the
+FP64 result has that same error. No criterion was relaxed and no RMSNorm change
+was shipped. The initial private attention harness also hit a CUDA registration
+collision; unique private launch names fixed it before qualification/timing.
+The affected public FP8 attention, RoPE, FP8 A8 Linear, LinearAdd and complete
+attention-input suites pass, including workspace intervals and CUDA graphs.
+Real DFlash2 integration passes for both presets; arithmetic, Unicode, tool
+calls and 9K retrieval smoke checks pass. RTX 5090 and vision were not rerun.
+Python checks used verified local 3.14 and Thor 3.12; the specified maintainer
+Python 3.11 executable is absent on this workstation.
+
+### BetterBench reports in tmux
+
+[BetterBench](https://github.com/GGZ14/BetterBench) is installed in
+`~/ninfer-thor/betterbench-venv` from revision `d00ad5e`. The wrapper adds the
+explicit NInfer `enable_thinking=false` request option and calibrates synthesized
+prefill depths with the server tokenizer before each timed request; it preserves
+BetterBench's timers and metrics. Configuration uses greedy sampling, seed 1234, three warmups,
+20 passes per category, and concurrency 1/2/4/8 with 48 requests per level.
+The prefill sweep requests depths 2K, 8K, 32K, 50K, 64K, 100K and 150K; these
+are calibrated synthesis targets, and reports use the server's actual token counts.
+The extra `agentic50k` report uses a tokenizer-calibrated 50K synthetic agent
+history with prefix reuse. It evaluates continuation speed, not task success
+or recall. Standard prefill uses fresh nonces and randomized bodies to avoid
+prefix-cache hits.
+
+```bash
+# Installed host paths; launch after inference tuning has finished.
+revision=$(git rev-parse HEAD)
+tmux new-session -d -s ninfer-betterbench \
+  "NINFER_REVISION=$revision bash $HOME/ninfer-thor/betterbench-tools/run_betterbench.sh"
+tmux attach -t ninfer-betterbench
+```
+
+The runner switches to `single` for decode and cached 50K continuation reports,
+compares five drafts on the same 50K history, then switches to `multi` for
+decode, cold prefill and concurrency. Switching reloads the
+model and interrupts other requests; it keeps one resident model and leaves
+multi mode running. Reports are saved under
+`~/ninfer-thor/reports/betterbench-<UTC timestamp>/` as offline HTML, JSON and
+logs, with configuration, BetterBench revision and image ID alongside them.
+Do not run competing GPU benchmarks during this job. The deep report is
+included when `~/ninfer-thor/deep-context-50k-prompt.json` from the tuning run
+exists. A full report is substantially longer than a `--quick` smoke run;
+quick reports are not publishable throughput evidence.
 
 ## Verification
 

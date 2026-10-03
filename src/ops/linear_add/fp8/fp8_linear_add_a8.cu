@@ -16,16 +16,28 @@ struct Fp8ResidualAddEpilogue : LinearResidualAddEpilogue {
 
 using K6144Tma32x64  = Fp8A8TmaMmaSchedule<32, 64, 128, 1, 2, 3, 2>;
 using K6144Tma64x128 = Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 3, 1>;
+#if defined(NINFER_THOR)
+using K6144MidBulk = Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>;
+#else
 using K6144MidBulk =
     Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
+#endif
 using K6144Bulk = Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
 
 using K17408Tma32x64 = Fp8A8TmaMmaSchedule<32, 64, 128, 1, 2, 3, 2>;
 using K17408Small =
     Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
+#if defined(NINFER_THOR)
+using K17408Mid = Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>;
+#else
 using K17408Mid = Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
+#endif
+#if defined(NINFER_THOR)
+using K17408Wide = Fp8A8TmaMmaSchedule<192, 128, 128, 3, 4, 2, 1>;
+#else
 using K17408Wide =
     Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<192, 128, 128, 3, 4, 2, 1>, 170, 4, 8>;
+#endif
 using K17408Bulk =
     Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
 
@@ -67,11 +79,17 @@ void launch_problem(const Tensor& x, const Weight& weight, Tensor& residual,
 std::size_t fp8_linear_add_partial_capacity_bytes(std::int32_t k, std::int32_t max_tokens) {
     if (k == 6144) {
         if (max_tokens > 768) return K6144Bulk::kPartialBytes;
+#if defined(NINFER_THOR)
+        return 0;
+#else
         return max_tokens > 192 ? K6144MidBulk::kPartialBytes : 0;
+#endif
     }
     if (max_tokens > 384) return K17408Bulk::kPartialBytes;
+#if !defined(NINFER_THOR)
     if (max_tokens > 256) return K17408Wide::kPartialBytes;
     if (max_tokens > 128) return K17408Mid::kPartialBytes;
+#endif
     return max_tokens > 64 ? K17408Small::kPartialBytes : 0;
 }
 

@@ -8,12 +8,21 @@ namespace {
 using Tma64x128 = Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 2, 1>;
 using Tma64x256 = Fp8A8TmaMmaSchedule<64, 256, 128, 2, 4, 2, 1>;
 using Tma96x256 = Fp8A8TmaMmaSchedule<96, 256, 128, 3, 4, 2, 1>;
-using Bulk      = Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
+// Thor benefits from a smaller tail wave without changing the GEMM tile.
+#if defined(NINFER_THOR)
+constexpr int kBulkWaveCtas = 20;
+constexpr int kPartialThreshold = 288;
+#else
+constexpr int kBulkWaveCtas = 170;
+constexpr int kPartialThreshold = 384;
+#endif
+using Bulk = Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>,
+                                    kBulkWaveCtas, 4, 8>;
 
 } // namespace
 
 std::size_t fp8_attn_input_partial_capacity_bytes(std::int32_t max_tokens) {
-    return max_tokens > 384 ? Bulk::kPartialBytes : 0;
+    return max_tokens > kPartialThreshold ? Bulk::kPartialBytes : 0;
 }
 
 void fp8_attn_input_a8_launch(const Tensor& x, const Weight& weight, Tensor& q, Tensor& gate,

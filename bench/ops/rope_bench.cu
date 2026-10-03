@@ -435,7 +435,7 @@ void run_text(int tokens, int axes, bool control, int candidate_block, const cha
     const int production_block = production_text_block<QHeads, KHeads>(tokens);
     const std::string route    = control ? "control-b" + std::to_string(production_block)
                                  : candidate_block == 0
-                                     ? "fixed-b" + std::to_string(production_block)
+                                     ? "public-op"
                                      : "candidate-b" + std::to_string(candidate_block);
     const std::string label    = std::string("rope text ") + geometry +
                               " axes=" + std::to_string(axes) + " route=" + route +
@@ -486,7 +486,7 @@ void run_dflash(int tokens, bool control, int candidate_block, int candidate_hea
         } else {
             const std::string selected = candidate_block ? "candidate-b" + std::to_string(block)
                                          : control ? "control-" + dflash_production_route(tokens)
-                                                   : dflash_production_route(tokens);
+                                                   : "public-op";
             std::printf("profile rope dflash T=%d route=%s\n", tokens, selected.c_str());
         }
         return;
@@ -494,7 +494,7 @@ void run_dflash(int tokens, bool control, int candidate_block, int candidate_hea
     const std::string route = control           ? "control-" + dflash_production_route(tokens)
                               : candidate_heads ? "candidate-h" + std::to_string(candidate_heads)
                               : candidate_block ? "candidate-b" + std::to_string(block)
-                                                : dflash_production_route(tokens);
+                                                : "public-op";
     const Result result     = bench_loop_prepared(restore, launch, bytes);
     const std::string label =
         "rope text dflash axes=1 route=" + route + " T=" + std::to_string(tokens);

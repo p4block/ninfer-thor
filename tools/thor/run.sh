@@ -8,7 +8,8 @@ Usage: run.sh [single|multi]
 
 Starts or replaces the ninfer-thor container, listening on 0.0.0.0:8000.
 Overrides: NINFER_THOR_DIR, NINFER_HOST, NINFER_DRAFT_TOKENS,
-           NINFER_SPEC_BACKEND (dflash2 or mtp; MTP defaults to 4 drafts).
+           NINFER_SPEC_BACKEND (dflash2 or mtp; MTP defaults to 4 drafts),
+           NINFER_LOCK_CLOCKS=0 (leave existing clock policy; default locks clocks).
 EOF
 }
 if [[ $# -gt 1 ]]; then usage >&2; exit 2; fi
@@ -47,6 +48,13 @@ docker image inspect ninfer-thor:sm110 >/dev/null
 if [[ ! -f "$ninfer_dir${artifact#/work}" ]]; then
   printf 'Missing model artifact: %s\n' "$ninfer_dir${artifact#/work}" >&2
   exit 2
+fi
+# Clock scaling makes short-kernel timings and request latency inconsistent.
+# Use the CPU-only runtime so this maintenance container does not open CUDA.
+if [[ "${NINFER_LOCK_CLOCKS:-1}" == 1 ]]; then
+  docker run --rm --runtime runc -e NVIDIA_VISIBLE_DEVICES=void \
+    --privileged --pid host --entrypoint nsenter ninfer-thor:sm110 \
+    -t 1 -m -p /usr/bin/jetson_clocks
 fi
 if docker container inspect ninfer-thor >/dev/null 2>&1; then
   docker stop --timeout 30 ninfer-thor >/dev/null

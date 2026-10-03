@@ -7,7 +7,11 @@ using Geometry  = Fp8Geometry<5120, 6144>;
 using Gemv      = Fp8A16GemvSchedule<8, 2, 8, 4, Fp8CodeCache::Default, 2, 2>;
 using Tma32x64  = Fp8A8TmaMmaSchedule<32, 64, 128, 1, 2, 3, 2>;
 using Tma64x128 = Fp8A8TmaMmaSchedule<64, 128, 128, 2, 4, 3, 1>;
+#if defined(NINFER_THOR)
+using MidBulk = Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>;
+#else
 using MidBulk   = Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 128, 128, 2, 4, 3, 1>, 170, 4, 8>;
+#endif
 using Bulk      = Fp8A8TmaSplitKSchedule<Fp8A8TmaMmaSchedule<128, 256, 128, 2, 4, 2, 1>, 170, 4, 8>;
 
 void launch_a16(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t stream) {
@@ -47,7 +51,11 @@ bool uses_a8(std::int32_t, std::int32_t max_tokens) { return max_tokens >= 17; }
 
 std::size_t partial_capacity_bytes(std::int32_t max_tokens) {
     if (max_tokens > 768) return Bulk::kPartialBytes;
+#if defined(NINFER_THOR)
+    return 0;
+#else
     return max_tokens > 192 ? MidBulk::kPartialBytes : 0;
+#endif
 }
 
 } // namespace
