@@ -38,7 +38,7 @@ python3 -m tools.convert --model "$CHECKPOINT" \
   --resource chat_template.jinja=tools/chat_templates/qwen3_8.jinja \
   --proposal --name qwen3.8-27b-thor-dflash2 \
   --out "$HOME/ninfer-thor/models/qwen3_8_27b_thor_dflash2.ninfer"
-bash tools/thor/run.sh multi
+NINFER_ARTIFACT=/work/models/qwen3_8_27b_thor_dflash2.ninfer bash tools/thor/run.sh multi
 ```
 
 The tested source is `unsloth/Qwen3.8-27B-NVFP4` revision
@@ -56,6 +56,18 @@ BF16 candidate selector. All 659 physical target objects (20.38 GB) were checked
 byte for byte against the original artifact; all 963 logical target bindings
 retain identical data. The deployed resident weights occupy 21.4 GiB.
 
+On the deployed Thor, the balanced default uses all-layer NVFP4 with five drafts.
+Press run from your workstation:
+
+```bash
+ssh hal@10.69.0.3 'bash ~/ninfer-thor/run_ninfer_thor.sh'
+```
+
+Use `http://10.69.0.3:8000/v1` in an OpenAI-compatible client with model
+`unsloth/Qwen3.8-27B-NVFP4` and any placeholder API key (authentication is disabled).
+The container stays running after SSH disconnects and restarts automatically after
+reboot. Check it with `ssh hal@10.69.0.3 'docker logs --tail 30 ninfer-thor'`.
+
 Choose the preset on the deployed Thor:
 
 ```bash
@@ -65,14 +77,16 @@ bash ~/ninfer-thor/run_ninfer_thor.sh multi
 
 | Preset | Active request slots | DFlash2 draft tokens | Intended workload |
 | --- | ---: | ---: | --- |
-| `single` | 1 | 15 | Fastest measured individual decode; additional requests queue |
-| `multi` (default) | 8 | 9 | Shared service with a balanced verification window |
+| `single` (default) | 1 | 5 | Balanced deep-context decode; additional requests queue |
+| `multi` | 8 | 5 | Shared service with the same balanced draft window |
 
-Both presets use FP8 KV, 262,144 total KV tokens, 1,024-token prefill chunks,
-automatic restart, and the private LAN listener at `0.0.0.0:8000`.
-The one-slot preset reserves 9.23 GiB of runtime GPU memory versus approximately
-15.2 GiB for eight slots, in addition to the same 21.4 GiB of resident weights.
-Its measured startup takes 10.3 seconds. The fresh one-slot baseline reaches
+Both presets use the all-layer NVFP4 artifact, FP8 KV, 262,144 total KV tokens,
+1,024-token prefill chunks, automatic restart, and the private LAN listener at `0.0.0.0:8000`.
+The measured five-draft, one-slot configuration reserves 9.23 GiB of runtime
+GPU memory, in addition to 17.6 GiB of target and draft weights. The earlier
+nine-draft, eight-slot configuration reserves approximately 15.2 GiB of runtime
+memory; the current five-draft multi preset has not been separately measured.
+The earlier mixed-model, fifteen-draft baseline starts in 10.3 seconds and reaches
 88.53 tok/s for code and 38.23 tok/s for explanation with approximately 166 ms
 short-prompt TTFT; this measurement precedes the larger-T head extension.
 The OpenAI-compatible base URL is `http://10.69.0.3:8000/v1`.
@@ -365,13 +379,15 @@ At 50K, draft-window testing (5/9/15) gives cached decode medians
 **30.34/25.92/28.25 tok/s** on the synthetic history. Five drafts gain another
 7.37% over fifteen, but short code falls to 43.40 tok/s and short explanation to
 28.80 tok/s, versus 88.51/38.23 with fifteen. The output sequences differ, so
-these are workload measurements, not pure kernel speedups. Fifteen remains the
-single-user default; use the existing override for the measured deep workload:
+these are workload measurements, not pure kernel speedups. The current launcher
+uses five drafts and the all-layer artifact. Reproduce the older mixed-model
+window choices explicitly:
 
 ```bash
-NINFER_DRAFT_TOKENS=5 bash ~/ninfer-thor/run_ninfer_thor.sh single
-# Return to the default single-user window:
-bash ~/ninfer-thor/run_ninfer_thor.sh single
+NINFER_ARTIFACT=/work/models/qwen3_8_27b_thor_dflash2.ninfer \
+  NINFER_DRAFT_TOKENS=5 bash ~/ninfer-thor/run_ninfer_thor.sh single
+NINFER_ARTIFACT=/work/models/qwen3_8_27b_thor_dflash2.ninfer \
+  NINFER_DRAFT_TOKENS=15 bash ~/ninfer-thor/run_ninfer_thor.sh single
 ```
 
 A measured-range Nsight Systems profile of the public Engine at 50K input plus
@@ -557,30 +573,23 @@ This is a cold-prefill-plus-decode trace, not a decode-only bandwidth-counter
 measurement. It supports targeting attention and speculation acceptance next;
 it does not establish achieved memory bandwidth or agent-task quality.
 
-Launch the experimental artifact explicitly:
+Launch the all-layer artifact with the balanced default:
 
 ```bash
-NINFER_ARTIFACT=/work/models/qwen3_8_27b_thor_all_layers_nvfp4.ninfer \
-  NINFER_DRAFT_TOKENS=5 bash ~/ninfer-thor/run_ninfer_thor.sh single
-# Restore the mixed model with the usual preset:
-bash ~/ninfer-thor/run_ninfer_thor.sh single
+bash ~/ninfer-thor/run_ninfer_thor.sh
+# Use mixed weights if preferred for their measured quality:
+NINFER_ARTIFACT=/work/models/qwen3_8_27b_thor_dflash2.ninfer \
+  bash ~/ninfer-thor/run_ninfer_thor.sh single
 ```
 
 `NINFER_ARTIFACT` chooses an explicit container path under `/work`; preset,
-backend, KV storage and other launch choices still apply. The unfinished
-BetterBench session was interrupted for this sequential experiment, with its
-logs retained. The `ninfer-betterbench` tmux session queues full mixed-model
-then experimental-artifact runs sequentially, with reports under
-`~/ninfer-thor/reports/betterbench-20261003-nvfp4/{mixed,nvfp4}/`.
-Each runs short-category decode, cached 50K decode with fifteen and five drafts,
-then multi-user decode, cold prefill through 150K and concurrency. The queue
-restores the mixed multi-user preset after both runs. Reports are asynchronous;
-these tables do not claim completed BetterBench results.
-
-```bash
-tmux attach -t ninfer-betterbench
-# Completed runs write single.html, agentic50k.html, agentic50k-k5.html and multi.html.
-```
+backend, KV storage and other launch choices still apply. The BetterBench queue
+was paused at the user's request to leave the server
+available for interactive testing. Partial logs remain under
+`~/ninfer-thor/reports/betterbench-20261003-nvfp4/mixed/`; no completed full report
+is claimed. Do not restart the queue while testing: it replaces the server and
+occupies the GPU. The maintained runner selects its measured fifteen/five/nine
+draft windows explicitly, independently of the balanced launcher default.
 
 ## Verification
 

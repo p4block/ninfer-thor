@@ -3,8 +3,8 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: run.sh [single|multi]
-  single  One active request; DFlash2 with 15 draft tokens.
-  multi   Eight active requests; DFlash2 with 9 draft tokens (default).
+  single  One active request; DFlash2 with 5 draft tokens (default).
+  multi   Eight active requests; DFlash2 with 5 draft tokens.
 
 Starts or replaces the ninfer-thor container, listening on 0.0.0.0:8000.
 Overrides: NINFER_THOR_DIR, NINFER_HOST, NINFER_DRAFT_TOKENS,
@@ -14,10 +14,10 @@ Overrides: NINFER_THOR_DIR, NINFER_HOST, NINFER_DRAFT_TOKENS,
 EOF
 }
 if [[ $# -gt 1 ]]; then usage >&2; exit 2; fi
-mode="${1:-multi}"
+mode="${1:-single}"
 case "$mode" in
-  single) max_concurrency=1; default_draft_tokens=15 ;;
-  multi) max_concurrency=8; default_draft_tokens=9 ;;
+  single) max_concurrency=1; default_draft_tokens=5 ;;
+  multi) max_concurrency=8; default_draft_tokens=5 ;;
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -25,7 +25,7 @@ ninfer_dir="${NINFER_THOR_DIR:-$HOME/ninfer-thor}"
 spec_backend="${NINFER_SPEC_BACKEND:-dflash2}"
 case "$spec_backend" in
   dflash2)
-    artifact="/work/models/qwen3_8_27b_thor_dflash2.ninfer"
+    artifact="/work/models/qwen3_8_27b_thor_all_layers_nvfp4.ninfer"
     ;;
   mtp)
     artifact="/work/models/qwen3_8_27b_thor.ninfer"

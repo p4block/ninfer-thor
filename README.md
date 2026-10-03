@@ -79,14 +79,25 @@ Qwen3.8 conversion, persistent service, verification, and tuning evidence.
 For the deployed Docker image and converted artifacts, choose a serving preset:
 
 ```bash
-bash tools/thor/run.sh single  # One active request, DFlash2 with 15 drafts
-bash tools/thor/run.sh multi   # Eight active request slots, DFlash2 with 9 drafts (default)
+bash tools/thor/run.sh        # Single user (default), all-layer NVFP4, 5 drafts
+bash tools/thor/run.sh multi  # Eight active request slots, 5 drafts
 ```
 
 The script replaces the existing `ninfer-thor` container and listens on
 `0.0.0.0:8000` for the private LAN. On the deployed host it is also available as
 `~/ninfer-thor/run_ninfer_thor.sh`. Switching modes interrupts active requests.
-Single mode favors individual decode speed; multi mode favors shared throughput.
+Both modes use the balanced five-draft window and all-layer NVFP4 target.
+For the already deployed Thor, press run from your workstation:
+
+```bash
+ssh hal@10.69.0.3 'bash ~/ninfer-thor/run_ninfer_thor.sh'
+```
+
+Connect your OpenAI-compatible client to `http://10.69.0.3:8000/v1`, model
+`unsloth/Qwen3.8-27B-NVFP4`, with any placeholder API key. The server has no
+API-key authentication. The all-layer artifact trades a measured 3.22% increase
+in small-corpus perplexity for faster prefill; details and the mixed-model
+override are in the Thor guide.
 The launcher locks Thor clocks by default; `NINFER_LOCK_CLOCKS=0` keeps the existing
 clock policy. The Thor guide also documents the BetterBench tmux report runner.
 See the Thor guide for measurements and environment overrides.

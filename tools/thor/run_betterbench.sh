@@ -20,8 +20,8 @@ common=(run --endpoint http://127.0.0.1:8000/v1 --model unsloth/Qwen3.8-27B-NVFP
   --config "$script_dir/betterbench_thor.json" --no-update-check
   --note "revision=${NINFER_REVISION:-unknown}" --note kv=fp8 --note thinking=false
   --note clocks=jetson_clocks
-  --note "artifact=${NINFER_ARTIFACT:-/work/models/qwen3_8_27b_thor_dflash2.ninfer}")
-bash "$thor_dir/run_ninfer_thor.sh" single
+  --note "artifact=${NINFER_ARTIFACT:-/work/models/qwen3_8_27b_thor_all_layers_nvfp4.ninfer}")
+NINFER_DRAFT_TOKENS=15 bash "$thor_dir/run_ninfer_thor.sh" single
 ready
 "$python" -u "$script_dir/betterbench_ninfer.py" "${common[@]}" \
   --decode --note preset=single --note drafts=15 --out "$report_dir/single.json" \
@@ -58,7 +58,7 @@ PYTHON
     --note preset=single --note drafts=5 --note prefix=cached \
     --out "$report_dir/agentic50k-k5.json" 2>&1 | tee "$report_dir/agentic50k-k5.log"
 fi
-bash "$thor_dir/run_ninfer_thor.sh" multi
+NINFER_DRAFT_TOKENS=9 bash "$thor_dir/run_ninfer_thor.sh" multi
 ready
 "$python" -u "$script_dir/betterbench_ninfer.py" "${common[@]}" \
   --decode --prefill --concurrency --note preset=multi --note drafts=9 \
