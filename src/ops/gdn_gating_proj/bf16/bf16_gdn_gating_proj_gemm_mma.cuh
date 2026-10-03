@@ -1,6 +1,6 @@
 #pragma once
 
-// SM120 BF16 GDN gating projection for the two exact registered geometries:
+// SM110/SM120 BF16 GDN gating projection for the two exact registered geometries:
 //
 //   Qwen3.6-27B:     a/b = W[48,5120] @ x[5120,T]
 //   Qwen3.6-35B-A3B: a/b = W[32,2048] @ x[2048,T]

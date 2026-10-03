@@ -11,9 +11,17 @@ namespace {
 template <int ActiveTokens>
 void launch_tile(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t stream) {
     using Geometry = Fp8N248320K5120;
+#ifdef NINFER_THOR
+    // Thor's smaller SM count favors more row CTAs and less K parallelism. Keep BF16
+    // activations and FP32 accumulation; only the reduction schedule changes.
+    using Schedule = Fp8A16SlicedKMmaSchedule<(ActiveTokens <= 8 ? 4 :
+                                              (ActiveTokens == 32 ? 4 : 2)), ActiveTokens,
+                                             ActiveTokens <= 16 ? 1 : 2>;
+#else
     using Schedule =
         Fp8A16SlicedKMmaSchedule<(ActiveTokens <= 8 ? 16 : (ActiveTokens <= 24 ? 8 : 4)),
                                  ActiveTokens, ActiveTokens <= 8 ? 1 : 2>;
+#endif
     static_assert((Geometry::kInputRows % Schedule::kBlockK) == 0);
     const LinearBf16Output output{static_cast<__nv_bfloat16*>(out.data), Geometry::kOutputRows};
     launch_fp8_a16_sliced_k_mma<Fp8ScheduleInstance<Schedule, Geometry::kInputRows, ActiveTokens>>(

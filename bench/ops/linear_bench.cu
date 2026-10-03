@@ -40,8 +40,14 @@ using ninfer::ops::LinearPolicy;
 
 namespace {
 
-constexpr double kRtx5090DramGBs          = 1792.0;
-constexpr double kRtx5090SustainedReadGBs = 1674.5;
+#ifdef NINFER_THOR
+constexpr double kDramSpecGBs = 273.0;
+// No independent sustained-read or dense Tensor Core calibration has been measured on Thor.
+constexpr double kSustainedReadGBs = std::numeric_limits<double>::quiet_NaN();
+#else
+constexpr double kDramSpecGBs = 1792.0;
+constexpr double kSustainedReadGBs = 1674.5;
+#endif
 // NVIDIA's GB202 table reports dense/sparse pairs at boost clock. Keep input and accumulator
 // precision explicit for the qualified Tensor Core routes below.
 constexpr double kRtx5090Fp8Fp16AccumulateTFLOPs = 838.0;
@@ -544,6 +550,11 @@ std::string join_labels(const std::vector<std::string>& labels) {
 }
 
 double registered_tensor_peak_tflops(const BenchPoint& point, const char*& profile) {
+#ifdef NINFER_THOR
+    (void)point;
+    profile = "";
+    return std::numeric_limits<double>::quiet_NaN();
+#else
     // Report Tensor Core utilization only when the exact registered problem and extent determine
     // that the public route executes the named MMA profile.
     if (point.qtype == QType::FP8_E4M3FN_ROW_BF16 &&
@@ -574,6 +585,7 @@ double registered_tensor_peak_tflops(const BenchPoint& point, const char*& profi
     }
     profile = "";
     return std::numeric_limits<double>::quiet_NaN();
+#endif
 }
 
 Result make_result(const BenchPoint& point, const LinearBenchWeight& weight,
@@ -590,7 +602,7 @@ Result make_result(const BenchPoint& point, const LinearBenchWeight& weight,
                                 static_cast<double>(point.t);
     const double seconds = timing.median_us * 1.0e-6;
     const double memory_floor_us =
-        static_cast<double>(model_bytes) / (kRtx5090DramGBs * 1.0e9) * 1.0e6;
+        static_cast<double>(model_bytes) / (kDramSpecGBs * 1.0e9) * 1.0e6;
 
     Result result;
     result.labels             = join_labels(point.labels);
@@ -608,8 +620,8 @@ Result make_result(const BenchPoint& point, const LinearBenchWeight& weight,
     result.min_us             = timing.min_us;
     result.p95_us             = timing.p95_us;
     result.effective_gbs      = static_cast<double>(model_bytes) / seconds / 1.0e9;
-    result.dram_spec_pct      = result.effective_gbs / kRtx5090DramGBs * 100.0;
-    result.sustained_read_pct = result.effective_gbs / kRtx5090SustainedReadGBs * 100.0;
+    result.dram_spec_pct      = result.effective_gbs / kDramSpecGBs * 100.0;
+    result.sustained_read_pct = result.effective_gbs / kSustainedReadGBs * 100.0;
     result.useful_tflops      = useful_flops / seconds / 1.0e12;
     result.tensor_peak_tflops = registered_tensor_peak_tflops(point, result.tensor_profile);
     if (std::isfinite(result.tensor_peak_tflops)) {
@@ -755,15 +767,22 @@ void print_header(const Options& opt) {
     CUDA_CHECK(cudaGetDevice(&device));
     cudaDeviceProp properties{};
     CUDA_CHECK(cudaGetDeviceProperties(&properties, device));
-    std::printf("# actual_gpu=%s sm=%d%d reference_gpu=RTX_5090\n", properties.name,
-                properties.major, properties.minor);
-    std::printf("# dram_spec_gbs=%.1f sustained_read_gbs=%.1f cache=%s\n", kRtx5090DramGBs,
-                kRtx5090SustainedReadGBs,
+#ifdef NINFER_THOR
+    constexpr const char* reference = "Jetson_AGX_Thor";
+#else
+    constexpr const char* reference = "RTX_5090";
+#endif
+    std::printf("# actual_gpu=%s sm=%d%d reference_gpu=%s\n", properties.name,
+                properties.major, properties.minor, reference);
+    std::printf("# dram_spec_gbs=%.1f sustained_read_gbs=%.1f cache=%s\n", kDramSpecGBs,
+                kSustainedReadGBs,
                 opt.graph_calls == 1 ? "cold" : "cold-before-graph-bundle");
+#ifndef NINFER_THOR
     std::printf("# dense_fp8_tensor_tflops fp16_acc=%.1f fp32_acc=%.1f mxfp8_fp32_acc=%.1f\n",
                 kRtx5090Fp8Fp16AccumulateTFLOPs, kRtx5090Fp8Fp32AccumulateTFLOPs,
                 kRtx5090MxFp8Fp32AccumulateTFLOPs);
     std::printf("# dense_bf16_tensor_tflops fp32_acc=%.1f\n", kRtx5090Bf16Fp32AccumulateTFLOPs);
+#endif
 }
 
 void print_results(const std::vector<Result>& results) {
@@ -828,8 +847,8 @@ void write_csv(const std::filesystem::path& path, const std::vector<Result>& res
             << ',' << result.n << ',' << result.k << ',' << result.t << ',' << result.weight_bytes
             << ',' << result.x_bytes << ',' << result.out_bytes << ',' << result.model_bytes << ','
             << result.useful_flops << ',' << result.median_us << ',' << result.min_us << ','
-            << result.p95_us << ',' << result.effective_gbs << ',' << kRtx5090DramGBs << ','
-            << result.dram_spec_pct << ',' << kRtx5090SustainedReadGBs << ','
+            << result.p95_us << ',' << result.effective_gbs << ',' << kDramSpecGBs << ','
+            << result.dram_spec_pct << ',' << kSustainedReadGBs << ','
             << result.sustained_read_pct << ',' << result.useful_tflops << ','
             << result.tensor_profile << ',';
         if (std::isfinite(result.tensor_peak_tflops)) { out << result.tensor_peak_tflops; }

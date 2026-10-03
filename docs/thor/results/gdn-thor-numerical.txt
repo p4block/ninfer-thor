@@ -1,0 +1,1 @@
+OK gdn_gating_proj correctness

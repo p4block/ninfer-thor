@@ -1,15 +1,21 @@
 """Small generation, Unicode, tool-use, and context retrieval smoke checks."""
+import argparse
 import json
 import time
 import urllib.request
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--base", default="http://127.0.0.1:8000")
+parser.add_argument("--model", default="unsloth/Qwen3.8-27B-NVFP4")
+args = parser.parse_args()
+
 
 def chat(name, messages, max_tokens=64, **kwargs):
-    payload = dict(model="unsloth/Qwen3.8-27B-NVFP4", messages=messages,
+    payload = dict(model=args.model, messages=messages,
                    max_tokens=max_tokens, temperature=0, presence_penalty=0,
                    chat_template_kwargs={"enable_thinking": False}, **kwargs)
     start = time.perf_counter()
-    request = urllib.request.Request("http://127.0.0.1:8000/v1/chat/completions",
+    request = urllib.request.Request(args.base + "/v1/chat/completions",
                                      json.dumps(payload).encode(),
                                      {"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=600) as response:
